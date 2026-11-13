@@ -44,9 +44,9 @@ pub struct Browser {
     replace: Option<String>,
     /// Something to tell the user inside the dialog.
     note: Option<String>,
-    /// The frame the dialog was last drawn inside File › Open or Save As: a dialog asked by one of
-    /// those pages is given up once its page is left.
-    inline: Option<u64>,
+    /// The dialog last drawn inside File › Open or Save As, and the frame it was drawn in: a
+    /// dialog asked by one of those pages is given up once its page is left.
+    inline: Option<(u64, FileDialogRequest)>,
 }
 
 
@@ -83,7 +83,7 @@ impl Browser {
             return false;
         }
         let ctx = ui.ctx().clone();
-        self.inline = Some(ctx.cumulative_frame_nr());
+        self.inline = pending.borrow().as_ref().map(|(r, _)| (ctx.cumulative_frame_nr(), r.clone()));
         self.run(&ctx, pending, files, |view, name| page::show_in(ui, view, name));
         true
     }
@@ -91,16 +91,21 @@ impl Browser {
     /// Draws the dialog the app is waiting on over the window, unless its File page drew it this
     /// frame, and answers it. One asked by a File page that is no longer showing is cancelled.
     pub fn show(&mut self, ctx: &egui::Context, pending: &Pending, files: &Rc<RefCell<Files>>) {
-        if pending.borrow().is_none() {
-            self.shown = None;
-            self.inline = None;
+        let Some(req) = pending.borrow().as_ref().map(|(r, _)| r.clone()) else {
+            // A File page asks again once its dialog is answered (a failed save, say): the same
+            // dialog then keeps its folder and name.
+            if self.inline.take().is_none() {
+                self.shown = None;
+            }
             return;
-        }
-        if let Some(frame) = self.inline {
+        };
+        if let Some((frame, asked)) = self.inline.take()
+            && asked == req
+        {
             if frame == ctx.cumulative_frame_nr() {
+                self.inline = Some((frame, asked));
                 return;
             }
-            self.inline = None;
             if let Some((_, tx)) = pending.borrow_mut().take() {
                 let _ = tx.send(Ok(Vec::new()));
                 ctx.request_repaint();
@@ -117,7 +122,7 @@ impl Browser {
             return;
         };
         if self.shown.as_ref() != Some(&req) {
-            let inline = self.inline;
+            let inline = self.inline.take();
             *self = Browser { inline, ..Browser::default() };
             if let FileDialogRequest::Save { name, .. } = &req {
                 self.name = name.clone();
