@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use egui::{Align2, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align2, Sense, Ui, pos2, vec2};
 use wordcraft_ui_egui::{FileDialogAnswer, FileDialogRequest, open_filters};
 
 use crate::files::{Files, Item};

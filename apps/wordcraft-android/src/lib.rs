@@ -28,6 +28,18 @@ struct App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Documents ChromeOS handed over ("Open with", or WordCraft as the default app).
+        let opened = self.files.borrow_mut().take_opened();
+        for o in opened {
+            match o {
+                Ok((path, _, _)) => {
+                    if let Err(e) = self.app.open_from_platform(&path, None) {
+                        self.app.report_open_failure(&path, &e);
+                    }
+                }
+                Err(e) => self.app.status_long(e),
+            }
+        }
         let problems = self.files.borrow_mut().logic();
         if let Some(p) = problems.into_iter().last() {
             self.app.status_long(p);
