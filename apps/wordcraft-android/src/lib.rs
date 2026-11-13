@@ -32,9 +32,11 @@ impl eframe::App for App {
         let opened = self.files.borrow_mut().take_opened();
         for o in opened {
             match o {
-                Ok((path, _, _)) => {
+                Ok((path, _, name, writable)) => {
                     if let Err(e) = self.app.open_from_platform(&path, None) {
                         self.app.report_open_failure(&path, &e);
+                    } else if !writable {
+                        self.app.status_long(format!("{name} was opened read only. Use Save As to keep your changes."));
                     }
                 }
                 Err(e) => self.app.status_long(e),
