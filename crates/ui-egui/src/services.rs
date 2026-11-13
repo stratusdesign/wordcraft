@@ -111,6 +111,10 @@ pub struct Services {
     /// used while File › Options names none. File › New lists personal templates from it and Save
     /// as Word Template starts in it. `None` (web) hides personal templates.
     pub templates_dir: Option<std::path::PathBuf>,
+    /// Android: draws the file dialog the host is showing (through `file_dialog`) inside File ›
+    /// Open and File › Save As, so those pages are the folder browser itself, as in GridCraft.
+    /// Returns false when no dialog is waiting.
+    pub file_page: Option<Box<dyn Fn(&mut egui::Ui) -> bool>>,
 }
 
 /// Files delivered asynchronously.

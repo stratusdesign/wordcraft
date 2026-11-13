@@ -21,7 +21,7 @@ use wordcraft_ui_egui::{Services, UiState, WordApp};
 
 struct App {
     app: WordApp,
-    browser: browser::Browser,
+    browser: Rc<RefCell<browser::Browser>>,
     pending: browser::Pending,
     files: Rc<RefCell<files::Files>>,
     prefs: Option<PathBuf>,
@@ -54,7 +54,7 @@ impl eframe::App for App {
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
-        self.browser.show(ui.ctx(), &self.pending, &self.files);
+        self.browser.borrow_mut().show(ui.ctx(), &self.pending, &self.files);
     }
     fn on_exit(&mut self) {
         let _ = self.files.borrow_mut().sync_back();
@@ -94,6 +94,7 @@ fn android_main(android_app: AndroidApp) {
             let mut session = Session::new(wordcraft_engine::blank_document(&region));
             session.system_region = region;
             let pending_hook = pending.clone();
+            let browser = Rc::new(RefCell::new(browser::Browser::default()));
             let services = Services {
                 file_dialog: Some(browser::hook(pending_hook, cc.egui_ctx.clone())),
                 cancel_file_dialog: Some(Box::new({
@@ -101,6 +102,10 @@ fn android_main(android_app: AndroidApp) {
                     move || {
                         pending.borrow_mut().take();
                     }
+                })),
+                file_page: Some(Box::new({
+                    let (browser, pending, files) = (browser.clone(), pending.clone(), files.clone());
+                    move |ui: &mut egui::Ui| browser.borrow_mut().show_in(ui, &pending, &files)
                 })),
                 ..Default::default()
             };
@@ -116,7 +121,7 @@ fn android_main(android_app: AndroidApp) {
                 app.replace_startup_document(doc);
             }
             app.start_screen();
-            Ok(Box::new(App { app, browser: browser::Browser::default(), pending, files, prefs }))
+            Ok(Box::new(App { app, browser, pending, files, prefs }))
         }),
     );
     if let Err(e) = result {

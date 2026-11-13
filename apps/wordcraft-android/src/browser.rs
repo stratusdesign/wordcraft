@@ -44,6 +44,9 @@ pub struct Browser {
     replace: Option<String>,
     /// Something to tell the user inside the dialog.
     note: Option<String>,
+    /// The frame the dialog was last drawn inside File › Open or Save As: a dialog asked by one of
+    /// those pages is given up once its page is left.
+    inline: Option<u64>,
 }
 
 
@@ -73,14 +76,49 @@ impl Browser {
         self.replace = None;
     }
 
-    /// Draws the dialog the app is waiting on, if any, and answers it.
+    /// Draws the dialog the app is waiting on inside File › Open or File › Save As (`ui`), and
+    /// answers it. False when no dialog is waiting.
+    pub fn show_in(&mut self, ui: &mut egui::Ui, pending: &Pending, files: &Rc<RefCell<Files>>) -> bool {
+        if pending.borrow().is_none() {
+            return false;
+        }
+        let ctx = ui.ctx().clone();
+        self.inline = Some(ctx.cumulative_frame_nr());
+        self.run(&ctx, pending, files, |view, name| page::show_in(ui, view, name));
+        true
+    }
+
+    /// Draws the dialog the app is waiting on over the window, unless its File page drew it this
+    /// frame, and answers it. One asked by a File page that is no longer showing is cancelled.
     pub fn show(&mut self, ctx: &egui::Context, pending: &Pending, files: &Rc<RefCell<Files>>) {
+        if pending.borrow().is_none() {
+            self.shown = None;
+            self.inline = None;
+            return;
+        }
+        if let Some(frame) = self.inline {
+            if frame == ctx.cumulative_frame_nr() {
+                return;
+            }
+            self.inline = None;
+            if let Some((_, tx)) = pending.borrow_mut().take() {
+                let _ = tx.send(Ok(Vec::new()));
+                ctx.request_repaint();
+            }
+            self.shown = None;
+            return;
+        }
+        self.run(ctx, pending, files, |view, name| page::show(ctx, view, name));
+    }
+
+    fn run(&mut self, ctx: &egui::Context, pending: &Pending, files: &Rc<RefCell<Files>>, draw: impl FnOnce(&page::View, &mut String) -> Vec<page::Action>) {
         let Some(req) = pending.borrow().as_ref().map(|(r, _)| r.clone()) else {
             self.shown = None;
             return;
         };
         if self.shown.as_ref() != Some(&req) {
-            *self = Browser::default();
+            let inline = self.inline;
+            *self = Browser { inline, ..Browser::default() };
             if let FileDialogRequest::Save { name, .. } = &req {
                 self.name = name.clone();
             }
@@ -128,7 +166,7 @@ impl Browser {
             accent: ACCENT,
         };
         let mut name = typed.clone();
-        let actions = page::show(ctx, &view, &mut name);
+        let actions = draw(&view, &mut name);
         if name != typed {
             // A different name drops the question about replacing the old one.
             self.replace = None;

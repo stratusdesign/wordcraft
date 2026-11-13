@@ -730,6 +730,16 @@ pub(crate) fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
 
 fn open_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Open");
+    // Android: the page is the folder browser (GridCraft's File › Open).
+    if app.services.file_page.is_some() {
+        if !app.file_dialog_open() {
+            app.open_dialog();
+        }
+        if let Some(page) = &app.services.file_page {
+            page(ui);
+        }
+        return;
+    }
     if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
         let _ = app.run("ui.openFileDialog", json!({}));
     }
@@ -755,6 +765,16 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     if !error.is_empty() {
         ui.label(egui::RichText::new(&error).color(ui.visuals().error_fg_color));
         ui.add_space(6.0);
+    }
+    // Android: the page is the folder browser (GridCraft's File › Save As).
+    if app.services.file_page.is_some() {
+        if !app.file_dialog_open() {
+            app.save_as_dialog();
+        }
+        if let Some(page) = &app.services.file_page {
+            page(ui);
+        }
+        return;
     }
     if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
         app.save_as_dialog();
