@@ -9,6 +9,7 @@
 
 mod browser;
 mod files;
+mod page;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
