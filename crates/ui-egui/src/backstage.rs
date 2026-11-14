@@ -6,20 +6,25 @@ use serde_json::json;
 use crate::theme::{Tokens, medium, regular, semibold};
 use crate::{WordApp, icons};
 
-/// The side menu: page id, label and icon (#1714).
+/// The side menu: page id, label and icon (#1714), laid out as GridCraft's: Home, New and Open,
+/// a line, then Info to Close; Recover and Options sit at the bottom.
 const PAGES: [(&str, &str, &str); 11] = [
     ("home", "Home", "homeFolder"),
     ("new", "New", "blankPage"),
     ("open", "Open", "open"),
     ("info", "Info", "info"),
-    ("recover", "Recover", "recover"),
     ("save", "Save", "save"),
     ("saveAs", "Save As", "saveAs"),
     ("print", "Print", "print"),
     ("export", "Export", "export"),
     ("close", "Close", "close"),
+    ("recover", "Recover", "recover"),
     ("options", "Options", "options"),
 ];
+
+/// Width of the side menu and height of its rows (GridCraft's).
+const NAV_W: f32 = 196.0;
+const NAV_H: f32 = 38.0;
 
 /// The Backstage pages' keytips, as Word's (#4960): Alt, F, then a letter. V is Word's older
 /// Print Preview key, which opens the Print page too.
@@ -50,20 +55,10 @@ fn keytip_letter(page: &str) -> Option<&'static str> {
 /// The Backstage back chevron's centre on macOS (#1873): beside the traffic lights in a
 /// window (the title bar's content edge), at the plain control inset in full screen, where the
 /// lights aren't docked top-left and the reserved offset would leave dead space.
+#[allow(dead_code)]
 fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left: f32) -> egui::Pos2 {
     let x = if fullscreen { 26.0 } else { content_left + 3.0 };
     pos2(band_min_x + x, center_y)
-}
-
-/// The bottom of the backstage menu: About, and the community link unless the user turned the
-/// community button off — the title bar pill honors the same setting, so the menu hides the
-/// link with it.
-fn bottom_links(app: &WordApp) -> Vec<(&'static str, &'static str)> {
-    let mut links = vec![("About", "about")];
-    if app.ui.show_discord {
-        links.push(("Discord community", "discord"));
-    }
-    links
 }
 
 /// Draws the Backstage side menu and the active page. Without a document only the Home, New, Open
@@ -76,118 +71,73 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.ui.backstage_page = "home".into();
     }
     let mac = app.integrated_titlebar;
+    // GridCraft's side menu: the app's colour, white rows, the page shown marked by a bar.
+    let (nav_text, nav_sel) = (egui::Color32::WHITE, egui::Color32::from_black_alpha(46));
     crate::rtl::start_panel("backstage_nav")
-        .exact_size(200.0)
+        .exact_size(NAV_W)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(t.nav).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 12 }, bottom: 12 }))
+        .frame(egui::Frame::NONE.fill(t.nav).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 10 }, bottom: 10 }))
         .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
             // Right to left the navigation is on the right, away from the macOS traffic lights.
             let rtl = crate::rtl::on();
-            let back = if mac {
+            if mac {
                 // macOS (#222): the Backstage covers the title bar, so its top band is the title
-                // bar: the back button sits beside the traffic lights, centred with them and as far
-                // from them as the title bar's own controls, and the rest of the band drags the window.
-                let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
+                // bar and drags the window.
+                let (band, drag) = ui.allocate_exact_size(vec2(NAV_W, app.mac_titlebar.height), Sense::click_and_drag());
                 if drag.drag_started() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
                 crate::chrome::note_title_drag(ui.ctx(), band);
-                // The chevron's stroke starts at the content edge.
-                let c = if rtl {
-                    pos2(band.max.x - 26.0, band.center().y)
-                } else {
-                    back_chevron_c(band.min.x, band.center().y, app.session.view.full_screen, app.mac_titlebar.content_left)
-                };
-                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.scope_id().with("backstage_back"), Sense::click());
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(c, vec2(18.0, 18.0)),
-                    if rtl { "chevronRight" } else { "chevronLeft" },
-                    egui::Color32::WHITE,
-                    egui::Color32::WHITE,
-                );
-                resp
-            } else {
-                // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
-                // the row reads as plain sidebar background next to it, so clicking there must
-                // not also close the File page, same as the macOS chevron fix (#2972) below.
-                let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
-                let c = pos2(crate::rtl::lead_x(rtl, r, 26.0), r.center().y);
-                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.scope_id().with("backstage_back"), Sense::click());
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(c, vec2(18.0, 18.0)),
-                    if rtl { "chevronRight" } else { "chevronLeft" },
-                    egui::Color32::WHITE,
-                    egui::Color32::WHITE,
-                );
-                resp
-            };
+            }
+            let back = nav_row(ui, rtl, NavIcon::Back, tl!("Back"), false, true, nav_text, nav_sel);
             // Escape in the built-in file browser closes only the browser.
             if back.clicked() || (!app.file_dialog_open() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
                 app.ui.backstage = false;
                 app.canvas.want_focus = true;
             }
-            ui.add_space(if mac { 12.0 } else { 6.0 });
-            for (id, label, icon) in PAGES {
+            ui.add_space(10.0);
+            let row = |ui: &mut Ui, app: &mut WordApp, (id, label, icon): (&str, &str, &str)| {
                 // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
                 let on = has_document || works_without_document(id);
-                let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, on, tl!(label)));
                 let active = app.ui.backstage_page == id;
-                if active {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                } else if on && resp.hovered() {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
-                }
-                let ink = if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) };
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(crate::rtl::lead_x(rtl, r, 31.0), r.center().y), vec2(18.0, 18.0)),
-                    icon,
-                    ink,
-                    ink,
-                );
-                ui.painter().text(
-                    pos2(crate::rtl::lead_x(rtl, r, 52.0), r.center().y),
-                    crate::rtl::lead_center(rtl),
-                    tl!(label),
-                    if active { semibold(14.0) } else { medium(14.0) },
-                    ink,
-                );
+                let resp = nav_row(ui, rtl, NavIcon::Named(icon), tl!(label), active, on, nav_text, nav_sel);
                 if on
                     && app.ui.keytips == crate::keytips::Phase::Backstage
                     && let Some(letter) = keytip_letter(id)
                 {
-                    crate::keytips::badge(ui, Rect::from_min_size(pos2(r.min.x + 16.0, r.min.y), vec2(20.0, 16.0)), letter);
+                    crate::keytips::badge(ui, Rect::from_min_size(pos2(resp.rect.min.x + 16.0, resp.rect.min.y), vec2(20.0, 16.0)), letter);
                 }
                 if resp.clicked() {
                     go_to_page(app, id);
                 }
+            };
+            for (k, page) in PAGES.into_iter().enumerate() {
+                if matches!(page.0, "recover" | "options") {
+                    continue;
+                }
+                if k == 3 {
+                    nav_separator(ui, nav_text);
+                }
+                row(ui, app, page);
             }
+            // Bottom up: Recover sits just above Options, as GridCraft's Account does.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                for (label, id) in bottom_links(app) {
-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
-                    }
-                    let at = pos2(crate::rtl::lead_x(rtl, r, 22.0), r.center().y);
-                    ui.painter().text(at, crate::rtl::lead_center(rtl), tl!(label), regular(13.0), egui::Color32::WHITE);
-                    if resp.clicked() {
-                        if id == "discord" {
-                            let _ = app.run("ui.discord", json!({}));
-                        } else {
-                            app.dialog = crate::dialogs::Dialog::open("about", app);
-                        }
-                    }
+                for page in PAGES.into_iter().filter(|p| p.0 == "options") {
+                    row(ui, app, page);
+                }
+                if nav_row(ui, rtl, NavIcon::Named("help"), tl!("About"), false, true, nav_text, nav_sel).clicked() {
+                    app.dialog = crate::dialogs::Dialog::open("about", app);
+                }
+                for page in PAGES.into_iter().filter(|p| p.0 == "recover") {
+                    row(ui, app, page);
                 }
             });
         });
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(0, 30))).show(ui, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin { left: 0, right: 0, top: 26, bottom: 32 })).show(ui, |ui| {
         // The side padding sits inside the pages, so the scroll area reaches the window's edge.
-        let pad = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(40, 0));
+        let pad = egui::Frame::NONE.inner_margin(egui::Margin { left: 44, right: 32, top: 0, bottom: 0 });
         // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
         if app.ui.backstage_page == "print" {
             pad.show(ui, |ui| crate::rtl::root(ui, |ui| export_page(app, ui)));
@@ -210,6 +160,50 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             })
         });
     });
+}
+
+/// What a side-menu row shows on its left.
+#[derive(Clone, Copy)]
+enum NavIcon {
+    /// GridCraft's back arrow in a circle.
+    Back,
+    Named(&'static str),
+}
+
+/// One side-menu row, as GridCraft's: the page shown gets a darker fill and a bar at its edge.
+#[allow(clippy::too_many_arguments)]
+fn nav_row(ui: &mut Ui, rtl: bool, icon: NavIcon, label: &str, selected: bool, on: bool, text: egui::Color32, sel: egui::Color32) -> egui::Response {
+    let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(NAV_W, NAV_H), Sense::click())).inner;
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, on, selected, label));
+    let p = ui.painter();
+    if selected {
+        p.rect_filled(r, 0.0, sel);
+        let bar = if rtl { Rect::from_min_max(pos2(r.max.x - 4.0, r.min.y), r.max) } else { Rect::from_min_size(r.min, vec2(4.0, r.height())) };
+        p.rect_filled(bar, 0.0, text);
+    } else if on && resp.hovered() {
+        p.rect_filled(r, 0.0, sel.gamma_multiply(0.55));
+    }
+    let ink = if on { text } else { text.gamma_multiply(0.45) };
+    let c = pos2(crate::rtl::lead_x(rtl, r, 30.0), r.center().y);
+    match icon {
+        NavIcon::Named(name) => icons::paint(p, Rect::from_center_size(c, vec2(17.0, 17.0)), name, ink, ink),
+        NavIcon::Back => {
+            let s = 17.0 / 16.0;
+            let at = |x: f32, y: f32| pos2(c.x + (x - 8.0) * s * if rtl { -1.0 } else { 1.0 }, c.y + (y - 8.0) * s);
+            p.circle_stroke(c, 6.5 * s, Stroke::new(1.2, ink));
+            p.line_segment([at(11.5, 8.0), at(4.8, 8.0)], Stroke::new(1.3, ink));
+            p.add(egui::Shape::line(vec![at(7.5, 5.3), at(4.8, 8.0), at(7.5, 10.7)], Stroke::new(1.3, ink)));
+        }
+    }
+    p.text(pos2(crate::rtl::lead_x(rtl, r, 50.0), r.center().y), crate::rtl::lead_center(rtl), label, regular(14.0), ink);
+    resp
+}
+
+/// The line between Open and Info (GridCraft's).
+fn nav_separator(ui: &mut Ui, text: egui::Color32) {
+    let (r, _) = ui.allocate_exact_size(vec2(NAV_W, 17.0), Sense::hover());
+    let y = r.center().y;
+    ui.painter().line_segment([pos2(r.left() + 20.0, y), pos2(r.right() - 20.0, y)], Stroke::new(1.0, text.gamma_multiply(0.35)));
 }
 
 /// Recovery is a separate copy. Leaving this page never discards it.
@@ -304,9 +298,17 @@ fn works_without_document(page: &str) -> bool {
     matches!(page, "home" | "new" | "open" | "options")
 }
 
+/// A page's title, as GridCraft's.
 fn heading(ui: &mut Ui, s: &str) {
-    ui.label(egui::RichText::new(tl!(s)).font(semibold(26.0)));
-    ui.add_space(16.0);
+    ui.label(egui::RichText::new(tl!(s)).font(regular(28.0)));
+    ui.add_space(18.0);
+}
+
+/// A heading inside a page (New, Recent), as GridCraft's.
+fn section(ui: &mut Ui, s: &str) {
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(tl!(s)).font(semibold(15.0)));
+    ui.add_space(8.0);
 }
 
 /// Draws a template thumbnail and caption as one accessible button, lazily renders and caches a
@@ -383,32 +385,17 @@ fn matching_templates(query: &str) -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
-/// Home: a greeting, Blank plus a short row of templates with a link to New, then Recent.
+/// Home, as GridCraft's: New (Blank and the first templates), then Recent.
 fn home_page(app: &mut WordApp, ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
-    let hour = wordcraft_engine::cmd::local_now().3.0;
-    heading(
-        ui,
-        if hour < 12 {
-            "Good morning"
-        } else if hour < 18 {
-            "Good afternoon"
-        } else {
-            "Good evening"
-        },
-    );
+    heading(ui, "Home");
+    section(ui, "New");
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
         for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
             template_tile(ui, app, label, template);
         }
     });
-    ui.add_space(8.0);
-    let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
-    if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-        app.ui.backstage_page = "new".into();
-    }
-    ui.add_space(24.0);
+    ui.add_space(22.0);
     open_list(app, ui);
 }
 
@@ -622,15 +609,14 @@ const REMOVE_W: f32 = 28.0;
 /// stores an open failure in this page's temporary state.
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
-    ui.add_space(6.0);
+    section(ui, "Recent");
     let error = ui.ctx().data(|d| d.get_temp::<String>(open_error_id())).unwrap_or_default();
     if !error.is_empty() {
         ui.label(egui::RichText::new(error).color(ui.visuals().error_fg_color));
         ui.add_space(6.0);
     }
     if app.ui.recent.is_empty() {
-        ui.label(egui::RichText::new(tl!("Documents you open will show up here.")).color(t.text_dim));
+        ui.label(egui::RichText::new(tl!("No recent documents yet.")).font(regular(12.5)).color(t.text_dim));
     }
     let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
     let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
@@ -768,6 +754,8 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     }
     // Android: the page is the folder browser (GridCraft's File › Save As).
     if app.services.file_page.is_some() {
+        ui.label(egui::RichText::new(tl!("Save the document under another name or in another folder.")).font(regular(12.5)).color(Tokens::get(ui.ctx()).text_dim));
+        ui.add_space(14.0);
         if !app.file_dialog_open() {
             app.save_as_dialog();
         }

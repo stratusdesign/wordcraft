@@ -80,6 +80,10 @@ impl WordApp {
         let window = self.windows.shown();
         let moved = |app: &WordApp| app.windows.shown() != window;
         if self.ui.backstage {
+            // The title bar stays above the File page, as in GridCraft (macOS: the page covers it).
+            if !self.integrated_titlebar {
+                chrome::title_bar(self, ui);
+            }
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
