@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod browser;
+mod clipboard;
 mod files;
 mod page;
 
@@ -25,6 +26,7 @@ struct App {
     pending: browser::Pending,
     files: Rc<RefCell<files::Files>>,
     prefs: Option<PathBuf>,
+    clip: clipboard::Bridge,
 }
 
 impl eframe::App for App {
@@ -50,11 +52,13 @@ impl eframe::App for App {
         self.app.logic(ctx);
     }
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.clip.input(raw);
         self.app.raw_input_hook(ctx, raw);
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
         self.browser.borrow_mut().show(ui.ctx(), &self.pending, &self.files);
+        self.clip.output(ui.ctx());
     }
     fn on_exit(&mut self) {
         let _ = self.files.borrow_mut().sync_back();
@@ -107,6 +111,7 @@ fn android_main(android_app: AndroidApp) {
                     let (browser, pending, files) = (browser.clone(), pending.clone(), files.clone());
                     move |ui: &mut egui::Ui| browser.borrow_mut().show_in(ui, &pending, &files)
                 })),
+                clipboard_text: Some(Box::new(clipboard::get)),
                 ..Default::default()
             };
             let mut app = WordApp::new(session, services);
@@ -121,7 +126,7 @@ fn android_main(android_app: AndroidApp) {
                 app.replace_startup_document(doc);
             }
             app.start_screen();
-            Ok(Box::new(App { app, browser, pending, files, prefs }))
+            Ok(Box::new(App { app, browser, pending, files, prefs, clip: clipboard::Bridge::default() }))
         }),
     );
     if let Err(e) = result {
