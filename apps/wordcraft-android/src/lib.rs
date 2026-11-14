@@ -11,6 +11,7 @@ mod browser;
 mod clipboard;
 mod files;
 mod page;
+mod print;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -112,6 +113,10 @@ fn android_main(android_app: AndroidApp) {
                     move |ui: &mut egui::Ui| browser.borrow_mut().show_in(ui, &pending, &files)
                 })),
                 clipboard_text: Some(Box::new(clipboard::get)),
+                print: Some(Box::new({
+                    let dir = data.clone();
+                    move |pdf: &[u8]| print::print(dir.as_deref(), "WordCraft document", pdf)
+                })),
                 ..Default::default()
             };
             let mut app = WordApp::new(session, services);
