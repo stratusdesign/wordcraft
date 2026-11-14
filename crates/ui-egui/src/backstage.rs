@@ -98,20 +98,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 app.canvas.want_focus = true;
             }
             ui.add_space(10.0);
-            let row = |ui: &mut Ui, app: &mut WordApp, (id, label, icon): (&str, &str, &str)| {
-                // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
-                let on = has_document || works_without_document(id);
-                let active = app.ui.backstage_page == id;
-                let resp = nav_row(ui, rtl, NavIcon::Named(icon), tl!(label), active, on, nav_text, nav_sel);
-                if on
-                    && app.ui.keytips == crate::keytips::Phase::Backstage
-                    && let Some(letter) = keytip_letter(id)
-                {
-                    crate::keytips::badge(ui, Rect::from_min_size(pos2(resp.rect.min.x + 16.0, resp.rect.min.y), vec2(20.0, 16.0)), letter);
-                }
-                if resp.clicked() {
-                    go_to_page(app, id);
-                }
+            let row = |ui: &mut Ui, app: &mut WordApp, page: (&'static str, &'static str, &'static str)| {
+                nav_page(ui, app, page, has_document, rtl, nav_text, nav_sel);
             };
             for (k, page) in PAGES.into_iter().enumerate() {
                 if matches!(page.0, "recover" | "options") {
@@ -160,6 +148,23 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             })
         });
     });
+}
+
+/// A side-menu row that opens a page (or, for Save and Close, acts at once).
+fn nav_page(ui: &mut Ui, app: &mut WordApp, (id, label, icon): (&'static str, &'static str, &'static str), has_document: bool, rtl: bool, nav_text: egui::Color32, nav_sel: egui::Color32) {
+    // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
+    let on = has_document || works_without_document(id);
+    let active = app.ui.backstage_page == id;
+    let resp = nav_row(ui, rtl, NavIcon::Named(icon), tl!(label), active, on, nav_text, nav_sel);
+    if on
+        && app.ui.keytips == crate::keytips::Phase::Backstage
+        && let Some(letter) = keytip_letter(id)
+    {
+        crate::keytips::badge(ui, Rect::from_min_size(pos2(resp.rect.min.x + 16.0, resp.rect.min.y), vec2(20.0, 16.0)), letter);
+    }
+    if resp.clicked() {
+        go_to_page(app, id);
+    }
 }
 
 /// What a side-menu row shows on its left.
